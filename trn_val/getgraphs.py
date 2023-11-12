@@ -9,8 +9,8 @@ import sastvd.helpers.joern as svdj
 import sastvd.helpers.sast as sast
 
 # SETUP
-NUM_JOBS = 100
-JOB_ARRAY_NUMBER = 0 if "ipykernel" in sys.argv[0] else int(sys.argv[1]) - 1
+NUM_JOBS = 1
+JOB_ARRAY_NUMBER = 0 #if "ipykernel" in sys.argv[0] else int(sys.argv[1]) - 1
 
 # Read Data
 df = svdd.bigvul()
@@ -41,11 +41,11 @@ def preprocess(row):
 
     # Run Joern on "before" code
     if not os.path.exists(f"{fpath1}.edges.json"):
-        svdj.full_run_joern(fpath1, verbose=3)
+        svdj.full_run_joern(fpath1, verbose=0)
 
     # Run Joern on "after" code
     if not os.path.exists(f"{fpath2}.edges.json") and len(row["diff"]) > 0:
-        svdj.full_run_joern(fpath2, verbose=3)
+        svdj.full_run_joern(fpath2, verbose=0)
 
     # Run SAST extraction
     fpath3 = savedir_before / f"{row['id']}.c.sast.pkl"
@@ -56,4 +56,5 @@ def preprocess(row):
 
 
 if __name__ == "__main__":
+    # svd.dfmp(splits[JOB_ARRAY_NUMBER], preprocess, ordr=False, workers=8)
     svd.dfmp(splits[JOB_ARRAY_NUMBER], preprocess, ordr=False, workers=8)

@@ -117,9 +117,9 @@ class LitCodebert(pl.LightningModule):
         self.bert = AutoModel.from_pretrained("microsoft/codebert-base")
         self.fc1 = torch.nn.Linear(768, 256)
         self.fc2 = torch.nn.Linear(256, 2)
-        self.accuracy = torchmetrics.Accuracy(task="multiclass", num_classes=2)
-        self.auroc = torchmetrics.AUROC(compute_on_step=False, task="multiclass", num_classes=2)
-        self.mcc = torchmetrics.MatthewsCorrCoef(task="multiclass", num_classes=2)
+        self.accuracy = torchmetrics.Accuracy()
+        self.auroc = torchmetrics.AUROC(compute_on_step=False)
+        self.mcc = torchmetrics.MatthewsCorrcoef(2)
 
     def forward(self, ids, mask):
         """Forward pass."""

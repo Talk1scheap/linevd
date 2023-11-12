@@ -22,15 +22,12 @@ train_ds = ivd.BigVulDatasetIVDetect(partition="train")
 val_ds = ivd.BigVulDatasetIVDetect(partition="val")
 test_ds = ivd.BigVulDatasetIVDetect(partition="test")
 dl_args = {"drop_last": False, "shuffle": True, "num_workers": 6}
-# dl_args = {"drop_last": False, "shuffle": True}
 train_dl = GraphDataLoader(train_ds, batch_size=16, **dl_args)
 val_dl = GraphDataLoader(val_ds, batch_size=16, **dl_args)
 test_dl = GraphDataLoader(test_ds, batch_size=64, **dl_args)
 
 # %% Create model
-DEVICE_AVAILABLE_LIST = [1] # 可用GPU(人为规定)
-dev = torch.device("cuda:"+str(DEVICE_AVAILABLE_LIST[0]) if torch.cuda.is_available() else "cpu")
-# dev = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+dev = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 svd.debug(dev)
 model = ivd.IVDetect(200, 64)
 model.to(dev)
@@ -48,7 +45,7 @@ optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
 ID = svd.get_run_id({})
 # ID = "202108121558_79d3273"
 logger = ml.LogWriter(
-    model, svd.processed_dir() / "ivdetect" / ID, max_patience=20, val_every=30
+    model, svd.processed_dir() / "ivdetect" / ID, max_patience=10000, val_every=30
 )
 # logger.load_logger()
 while True:

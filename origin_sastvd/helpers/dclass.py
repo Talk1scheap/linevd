@@ -18,21 +18,18 @@ class BigVulDataset:
             int(Path(i).name.split(".")[0])
             for i in glob(str(svd.processed_dir() / "bigvul/before/*nodes*"))
         ]
-        self.df = svdds.bigvul(splits=splits)  # 从storage/cache/minimal_datasets/minimal_bigvul_False.pq读取数据
+        self.df = svdds.bigvul(splits=splits)
         self.partition = partition
-        self.df = self.df[self.df.label == partition]  # 根据标签（train、val、test）筛选数据
-        self.df = self.df[self.df.id.isin(self.finished)]  # 根据是否已经处理过筛选数据，
-        # 但是已处理的是从177736开始，而在df中正好177736开始是有漏洞的，所以这样过后只剩有漏洞的数据了
+        self.df = self.df[self.df.label == partition]
+        self.df = self.df[self.df.id.isin(self.finished)]
+        # 打印df的信息
+        print(self.df)
 
         # Balance training set
-        if partition == "train" or partition == "val":  # 如果是训练集或者验证集
-            vul = self.df[self.df.vul == 1]  # 获取有漏洞的数据
-            nonvul = self.df[self.df.vul == 0]  # 获取没有漏洞的数据
-            if vul.size < nonvul.size:  # 如果有漏洞的数据比没有漏洞的数据少
-                nonvul = nonvul.sample(len(vul), random_state=0)  # 随机抽取没有漏洞的数据
-            else:  # 如果没有漏洞的数据比有漏洞的数据少
-                vul = vul.sample(len(nonvul), random_state=0)  # 随机抽取有漏洞的数据，但此时len(nonvul)=0，会把vul数据清空
-            self.df = pd.concat([vul, nonvul])  # 将有漏洞的数据和没有漏洞的数据合并，合并完还是0，整个df没有数据
+        if partition == "train" or partition == "val":
+            vul = self.df[self.df.vul == 1]
+            nonvul = self.df[self.df.vul == 0].sample(len(vul), random_state=0)
+            self.df = pd.concat([vul, nonvul])
 
         # Correct ratio for test set
         if partition == "test":
@@ -54,6 +51,7 @@ class BigVulDataset:
             self.df, BigVulDataset.check_validity, "id", desc="Validate Samples: "
         )
         self.df = self.df[self.df.valid]
+
         # Get mapping from index to sample ID.
         self.df = self.df.reset_index(drop=True).reset_index()
         self.df = self.df.rename(columns={"index": "idx"})

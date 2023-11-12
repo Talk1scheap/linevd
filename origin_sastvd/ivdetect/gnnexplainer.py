@@ -254,7 +254,6 @@ def visualize_sub_graph(
 def gnnexplainer(model, graph, dataset):
     """Run GNNExplainer to obtain lines in ranked importance."""
     dev = th.device("cuda:0" if th.cuda.is_available() else "cpu")
-    self.dev = th.device("cpu")
 
     # Create an explainer
     explainer = NodeExplainerModule(

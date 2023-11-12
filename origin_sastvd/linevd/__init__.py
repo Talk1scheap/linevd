@@ -1,7 +1,7 @@
 """Main code for training. Probably needs refactoring."""
 import os
 from glob import glob
-import numpy as np
+
 import dgl
 import pandas as pd
 import pytorch_lightning as pl
@@ -20,7 +20,6 @@ import sastvd.linevd.gnnexplainer as lvdgne
 import torch as th
 import torch.nn.functional as F
 import torchmetrics
-from torchmetrics import MatthewsCorrCoef
 from dgl.data.utils import load_graphs, save_graphs
 from dgl.dataloading import GraphDataLoader
 from dgl.nn.pytorch import GATConv, GraphConv
@@ -207,6 +206,7 @@ class BigVulDatasetLineVD(svddc.BigVulDataset):
         """Override getitem."""
         return self.item(self.idx2id[idx])
 
+
 class BigVulDatasetLineVDDataModule(pl.LightningDataModule):
     """Pytorch Lightning Datamodule for Bigvul."""
 
@@ -241,14 +241,14 @@ class BigVulDatasetLineVDDataModule(pl.LightningDataModule):
     def node_dl(self, g, shuffle=False):
         """Return node dataloader."""
         sampler = dgl.dataloading.MultiLayerFullNeighborSampler(self.nsampling_hops)
-        return dgl.dataloading.DistNodeDataLoader(
+        return dgl.dataloading.NodeDataLoader(
             g,
             g.nodes(),
             sampler,
             batch_size=self.batch_size,
             shuffle=shuffle,
             drop_last=False,
-            # num_workers=1,
+            num_workers=1,
         )
 
     def train_dataloader(self):
@@ -273,71 +273,6 @@ class BigVulDatasetLineVDDataModule(pl.LightningDataModule):
         """Return test dataloader."""
         return GraphDataLoader(self.test, batch_size=32)
 
-class BigVulDataset_EvasionTest(pl.LightningDataModule):
-    """Pytorch Lightning Datamodule for Bigvul."""
-
-    def __init__(
-        self,
-        batch_size: int = 32,
-        sample: int = -1,
-        methodlevel: bool = False,
-        nsampling: bool = False,
-        nsampling_hops: int = 1,
-        gtype: str = "cfgcdg",
-        splits: str = "default",
-        feat: str = "all",
-    ):
-        """Init class from bigvul dataset."""
-        super().__init__()
-        dataargs = {"sample": sample, "gtype": gtype, "splits": splits, "feat": feat}
-        self.train = BigVulDatasetLineVD(partition="train", **dataargs)
-        self.val = BigVulDatasetLineVD(partition="val",vulonly=True, **dataargs)
-        self.test = BigVulDatasetLineVD(partition="test",vulonly=True, **dataargs)
-        codebert = cb.CodeBert()
-        self.train.cache_codebert_method_level(codebert)
-        self.val.cache_codebert_method_level(codebert)
-        self.test.cache_codebert_method_level(codebert)
-        self.train.cache_items(codebert)
-        self.val.cache_items(codebert)
-        self.test.cache_items(codebert)
-        self.batch_size = batch_size
-        self.nsampling = nsampling
-        self.nsampling_hops = nsampling_hops
-
-    def node_dl(self, g, shuffle=False):
-        """Return node dataloader."""
-        sampler = dgl.dataloading.MultiLayerFullNeighborSampler(self.nsampling_hops)
-        return dgl.dataloading.DistNodeDataLoader(
-            g,
-            g.nodes(),
-            sampler,
-            batch_size=self.batch_size,
-            shuffle=shuffle,
-            drop_last=False,
-            # num_workers=1,
-        )
-
-    def train_dataloader(self):
-        """Return train dataloader."""
-        if self.nsampling:
-            g = next(iter(GraphDataLoader(self.train, batch_size=len(self.train))))
-            return self.node_dl(g, shuffle=True)
-        return GraphDataLoader(self.train, shuffle=True, batch_size=self.batch_size)
-
-    def val_dataloader(self):
-        """Return val dataloader."""
-        if self.nsampling:
-            g = next(iter(GraphDataLoader(self.val, batch_size=len(self.val))))
-            return self.node_dl(g)
-        return GraphDataLoader(self.val, batch_size=self.batch_size)
-
-    def val_graph_dataloader(self):
-        """Return test dataloader."""
-        return GraphDataLoader(self.val, batch_size=32)
-
-    def test_dataloader(self):
-        """Return test dataloader."""
-        return GraphDataLoader(self.test, batch_size=32)
 
 # %%
 class LitGNN(pl.LightningModule):
@@ -362,14 +297,12 @@ class LitGNN(pl.LightningModule):
         gnntype: str = "gat",
         random: bool = False,
         scea: float = 0.7,
-        batch_size: int = 32,
     ):
         """Initilisation."""
         super().__init__()
         self.lr = lr
         self.random = random
         self.save_hyperparameters()
-        self.bs = batch_size
 
         # Set params based on embedding type
         if self.hparams.embtype == "codebert":
@@ -388,14 +321,14 @@ class LitGNN(pl.LightningModule):
             self.loss_f = th.nn.CrossEntropyLoss()
         else:
             self.loss = th.nn.CrossEntropyLoss(
-                weight=th.Tensor([1, self.hparams.stmtweight]).cuda()
+                weight=th.Tensor([1, self.hparams.stmtweight]).cpu()
             )
             self.loss_f = th.nn.CrossEntropyLoss()
 
         # Metrics
         self.accuracy = torchmetrics.Accuracy(task="multiclass", num_classes=2)
-        # self.auroc = torchmetrics.AUROC(compute_on_step=False)
-        # self.mcc = MatthewsCorrCoef(2)
+        self.auroc = torchmetrics.AUROC(compute_on_step=False,task="multiclass", num_classes=2)
+        self.mcc = torchmetrics.MatthewsCorrCoef(task="multiclass", num_classes=2)
 
         # GraphConv Type
         hfeat = self.hparams.hfeat
@@ -436,8 +369,7 @@ class LitGNN(pl.LightningModule):
         # self.gcn2 = GraphConv(hfeat, hfeat)
 
         # Transform codebert embedding
-        # self.codebertfc = th.nn.Linear(768, self.hparams.hfeat)
-        self.codebertfc = th.nn.Linear(768, self.hparams.embfeat)
+        self.codebertfc = th.nn.Linear(768, self.hparams.hfeat)
 
         # Hidden Layers
         self.fch = []
@@ -571,14 +503,14 @@ class LitGNN(pl.LightningModule):
         acc = self.accuracy(pred.argmax(1), labels)
         if not self.hparams.methodlevel:
             acc_func = self.accuracy(logits.argmax(1), labels_func)
-        # mcc = self.mcc(pred.argmax(1), labels)
-        print(pred.argmax(1), labels)
+        mcc = self.mcc(pred.argmax(1), labels)
+        # print(pred.argmax(1), labels)
 
-        self.log("train_loss", loss, on_epoch=True, prog_bar=True, logger=True, batch_size=self.bs)
-        self.log("train_acc", acc, prog_bar=True, logger=True, batch_size=self.bs)
+        self.log("train_loss", loss, on_epoch=True, prog_bar=True, logger=True)
+        self.log("train_acc", acc, prog_bar=True, logger=True)
         if not self.hparams.methodlevel:
-            self.log("train_acc_func", acc_func, prog_bar=True, logger=True, batch_size=self.bs)
-        # self.log("train_mcc", mcc, prog_bar=True, logger=True, batch_size=self.bs)
+            self.log("train_acc_func", acc_func, prog_bar=True, logger=True)
+        self.log("train_mcc", mcc, prog_bar=True, logger=True)
         return loss
 
     def validation_step(self, batch, batch_idx):
@@ -595,13 +527,13 @@ class LitGNN(pl.LightningModule):
         logits = logits[1] if self.hparams.multitask == "method" else logits[0]
         pred = F.softmax(logits, dim=1)
         acc = self.accuracy(pred.argmax(1), labels)
-        # mcc = self.mcc(pred.argmax(1), labels)
+        mcc = self.mcc(pred.argmax(1), labels)
 
-        self.log("val_loss", loss, on_step=True, prog_bar=True, logger=True, batch_size=self.bs)
-        # self.auroc.update(logits[:, 1], labels)
-        # self.log("val_auroc", self.auroc, prog_bar=True, logger=True, batch_size=self.bs)
-        self.log("val_acc", acc, prog_bar=True, logger=True, batch_size=self.bs)
-        # self.log("val_mcc", mcc, prog_bar=True, logger=True, batch_size=self.bs)
+        self.log("val_loss", loss, on_step=True, prog_bar=True, logger=True)
+        self.auroc.update(logits[:, 1], labels)
+        self.log("val_auroc", self.auroc, prog_bar=True, logger=True)
+        self.log("val_acc", acc, prog_bar=True, logger=True)
+        self.log("val_mcc", mcc, prog_bar=True, logger=True)
         return loss
 
     def test_step(self, batch, batch_idx):

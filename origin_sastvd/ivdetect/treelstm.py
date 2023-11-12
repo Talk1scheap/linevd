@@ -71,8 +71,7 @@ class TreeLSTM(nn.Module):
         self.dropout = nn.Dropout(dropout)
         self.cell = ChildSumTreeLSTMCell(x_size, h_size)
         self.h_size = h_size
-        # self.dev = th.device("cuda:0" if th.cuda.is_available() else "cpu")
-        self.dev = th.device("cpu")
+        self.dev = th.device("cuda:0" if th.cuda.is_available() else "cpu")
 
     def forward(self, g):
         """Compute tree-lstm prediction given a batch.

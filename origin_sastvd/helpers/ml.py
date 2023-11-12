@@ -133,11 +133,9 @@ def dict_mean(dict_list):
     """
     mean_dict = {}
     for key in dict_list[0].keys():
-        valid_values = [d[key] for d in dict_list if not np.isnan(d[key])]
-        if len(valid_values) > 0:
-            mean_dict[key] = np.mean(valid_values)
-        else:
-            mean_dict[key] = None
+        mean_dict[key] = sum(d[key] for d in dict_list if not np.isnan(d[key])) / len(
+            [d[key] for d in dict_list if not np.isnan(d[key])]
+        )
     return mean_dict
 
 

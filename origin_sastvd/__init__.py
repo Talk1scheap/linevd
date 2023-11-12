@@ -12,6 +12,7 @@ from pathlib import Path
 import pandas as pd
 from tqdm import tqdm
 
+
 def project_dir() -> Path:
     """Get project path."""
     return Path(__file__).parent.parent
@@ -22,10 +23,7 @@ def storage_dir() -> Path:
     storage = os.getenv("SINGSTORAGE")
     if storage:
         return Path(storage) / "storage"
-    # if storage: # poison_exp_path
-    #     return Path(storage) / "poison_storage"
     return Path(__file__).parent.parent / "storage"
-    # return Path(__file__).parent.parent / "poison_storage"
 
 
 def external_dir() -> Path:
@@ -109,9 +107,9 @@ def subprocess_cmd(command: str, verbose: int = 0, force_shell: bool = False):
     >>> a
     >>> b
     """
-    # singularity = os.getenv("SINGULARITY")
-    # if singularity != "true" and not force_shell:
-    #     command = f"singularity exec {project_dir() / 'main.sif'} " + command
+    singularity = os.getenv("SINGULARITY")
+    if singularity != "true" and not force_shell:
+        command = f"singularity exec {project_dir() / 'main.sif'} " + command
     process = subprocess.Popen(
         command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True
     )
@@ -124,9 +122,9 @@ def subprocess_cmd(command: str, verbose: int = 0, force_shell: bool = False):
 
 def watch_subprocess_cmd(command: str, force_shell: bool = False):
     """Run subprocess and monitor output. Used for debugging purposes."""
-    # singularity = os.getenv("SINGULARITY")
-    # if singularity != "true" and not force_shell:
-    #     command = f"singularity exec {project_dir() / 'main.sif'} " + command
+    singularity = os.getenv("SINGULARITY")
+    if singularity != "true" and not force_shell:
+        command = f"singularity exec {project_dir() / 'main.sif'} " + command
     process = subprocess.Popen(
         command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT
     )
@@ -170,7 +168,7 @@ def dfmp(df, function, columns=None, ordr=True, workers=6, cs=10, desc="Run: "):
     def asdf(x):
         return x
 
-    dfmp(list(range(10)), asdf, ordr=False, workers=6, cs=1) cs:chunksize 
+    dfmp(list(range(10)), asdf, ordr=False, workers=6, cs=1)
     """
     if isinstance(columns, str):
         items = df[columns].tolist()

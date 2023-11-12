@@ -8,9 +8,6 @@ import sastvd as svd
 import sastvd.helpers.tokenise as svdt
 from scipy import spatial
 
-import os
-os.environ["PATH"] += os.pathsep + "/home/talk1scheap/GloVe/build/"
-
 
 def glove(
     CORPUS,

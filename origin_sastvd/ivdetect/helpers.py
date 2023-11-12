@@ -20,16 +20,14 @@ import torch.nn as nn
 import torch.nn.functional as F
 from dgl.nn import GraphConv
 from torch.nn.utils.rnn import pad_sequence
-import numpy as np
-from torch_scatter import scatter
 
-def global_mean_pool(x, batch, size=None):
-    """Global mean pool (copied)."""
-    import numpy as np
-    from torch_scatter import scatter
+# def global_mean_pool(x, batch, size=None):
+#     """Global mean pool (copied)."""
+#     import numpy as np
+#     from torch_scatter import scatter
 
-    size = int(batch.max().item() + 1) if size is None else size
-    return scatter(x, batch, dim=0, dim_size=size, reduce="mean")
+#     size = int(batch.max().item() + 1) if size is None else size
+#     return scatter(x, batch, dim=0, dim_size=size, reduce="mean")
 
 
 def feature_extraction(filepath):
@@ -249,8 +247,7 @@ class IVDetect(nn.Module):
         self.bigru = nn.GRU(
             hidden_size, hidden_size, bidirectional=True, batch_first=True
         )
-        # self.dev = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-        self.dev = torch.device("cpu")
+        self.dev = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
         self.treelstm = ivdts.TreeLSTM(input_size, hidden_size, dropout=0)
         self.gcn = GraphConv(hidden_size, 2)
@@ -343,15 +340,15 @@ class IVDetect(nn.Module):
 
         g.ndata["h"] = self.gcn(g, feat_vec)
         batch_pooled = torch.empty(size=(0, 2)).to(self.dev)
-        for g_i in dgl.unbatch(g):
-            conv_output = g_i.ndata["h"]
-            pooled = global_mean_pool(
-                conv_output,
-                torch.tensor(
-                    np.zeros(shape=(conv_output.shape[0]), dtype=int), device=self.dev
-                ),
-            )
-            batch_pooled = torch.cat([batch_pooled, pooled])
+        # for g_i in dgl.unbatch(g):
+        #     conv_output = g_i.ndata["h"]
+        #     pooled = global_mean_pool(
+        #         conv_output,
+        #         torch.tensor(
+        #             np.zeros(shape=(conv_output.shape[0]), dtype=int), device=self.dev
+        #         ),
+        #     )
+        #     batch_pooled = torch.cat([batch_pooled, pooled])
         return batch_pooled
 
 

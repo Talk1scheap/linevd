@@ -1,13 +1,10 @@
 import math
 
 import dgl
-import dgl.function as fn
-import matplotlib.pylab as plt
-import networkx as nx
+import pytorch_lightning as pl
 import torch as th
 import torch.nn as nn
 import torch.nn.functional as F
-from tqdm import tqdm
 
 
 class NodeExplainerModule(nn.Module):
@@ -96,7 +93,7 @@ class NodeExplainerModule(nn.Module):
                 nn.init.constant_(mask, 0.0)
         return mask
 
-    def forward(self, graph, n_feats, dataset):
+    def forward(self, graph, n_feats):
         """
         Calculate prediction results after masking input of the given model.
         Parameters
@@ -113,8 +110,10 @@ class NodeExplainerModule(nn.Module):
         edge_mask = self.edge_mask.sigmoid()
 
         # Step 2: Add compute logits after mask node features and edges
-        graph.ndata["_FEAT"] = new_n_feats
-        new_logits = self.model(graph, dataset, edge_mask)
+        graph.ndata["_maskedfeat"] = new_n_feats
+        new_logits = self.model(
+            graph, test=True, e_weights=edge_mask, feat_override="_maskedfeat"
+        )[0]
 
         return new_logits
 
@@ -186,119 +185,56 @@ class NodeExplainerModule(nn.Module):
         return total_loss
 
 
-def visualize_sub_graph(
-    sub_graph, edge_weights=None, origin_nodes=None, center_node=None
-):
-    """
-    Use networkx to visualize the sub_graph and,
-    if edge weights are given, set edges with different fading of blue.
-    Parameters
-    ----------
-    sub_graph: DGLGraph, the sub_graph to be visualized.
-    edge_weights: Tensor, the same number of edges. Values are (0,1), default is None
-    origin_nodes: List, list of node ids that will be used to replace the node ids in the subgraph in visualization
-    center_node: Tensor, the node id in origin node list to be highlighted with different color
-    Returns
-    show the sub_graph
-    -------
-    """
-    # Extract original idx and map to the new networkx graph
-    # Convert to networkx graph
-    g = dgl.to_networkx(sub_graph)
-    nx_edges = g.edges(data=True)
+class GNNExplainerLit(pl.LightningModule):
+    """Main Trainer."""
 
-    if not (origin_nodes is None):
-        n_mapping = {
-            new_id: old_id for new_id, old_id in enumerate(origin_nodes.tolist())
-        }
-        g = nx.relabel_nodes(g, mapping=n_mapping)
-
-    pos = nx.spring_layout(g)
-
-    if edge_weights is None:
-        options = {
-            "node_size": 1000,
-            "alpha": 0.9,
-            "font_size": 24,
-            "width": 4,
-        }
-    else:
-
-        ec = [edge_weights[e[2]["id"]][0] for e in nx_edges]
-        options = {
-            "node_size": 1000,
-            "alpha": 0.3,
-            "font_size": 12,
-            "edge_color": ec,
-            "width": 4,
-            "edge_cmap": plt.cm.Reds,
-            "edge_vmin": 0,
-            "edge_vmax": 1,
-            "connectionstyle": "arc3,rad=0.1",
-        }
-
-    nx.draw(g, pos, with_labels=True, node_color="b", **options)
-    if not (center_node is None):
-        nx.draw(
-            g,
-            pos,
-            nodelist=center_node.tolist(),
-            with_labels=True,
-            node_color="r",
-            **options
+    def __init__(self, model, g):
+        """Initilisation."""
+        super().__init__()
+        for param in model.parameters():
+            param.requires_grad = False
+        self.explainer = NodeExplainerModule(
+            model=model, num_edges=g.number_of_edges(), node_feat_dim=768
         )
+        self.model_logits = model(g, test=True)[0]
+        self.model_predict = F.one_hot(th.argmax(self.model_logits, dim=-1), 2)
+        self.sub_feats = g.ndata["_CODEBERT"]
+        self.g = g
 
-    plt.show()
+    def forward(self, g):
+        """Forward pass."""
+        exp_logits = self.explainer(g, self.sub_feats)
+        return exp_logits
+
+    def training_step(self, batch, batch_idx):
+        """Training step."""
+        exp_logits = self(batch)[0]
+        loss = self.explainer._loss(exp_logits, self.model_predict)
+        self.log("train_loss", loss, on_epoch=True, prog_bar=False)
+        return loss
+
+    def train_dataloader(self):
+        """Train on the single graph."""
+        return dgl.dataloading.GraphDataLoader([self.g])
+
+    def configure_optimizers(self):
+        """Configure optimizer."""
+        return th.optim.AdamW(self.parameters(), lr=0.01, weight_decay=0)
 
 
-def gnnexplainer(model, graph, dataset):
-    """Run GNNExplainer to obtain lines in ranked importance."""
-    dev = th.device("cuda:0" if th.cuda.is_available() else "cpu")
-    self.dev = th.device("cpu")
-
-    # Create an explainer
-    explainer = NodeExplainerModule(
-        model=model, num_edges=graph.number_of_edges(), node_feat_dim=200
+def get_node_importances(model, g):
+    """Assign node importance scores to DGL graph based on GNNExplainer."""
+    gnne = GNNExplainerLit(model.cuda(), g.to("cuda"))
+    trainer = pl.Trainer(
+        gpus=1, max_epochs=20, default_root_dir="/tmp/", log_every_n_steps=1
     )
-    explainer.to(dev)
-
-    # define optimizer
-    optim = th.optim.Adam(explainer.parameters(), lr=0.01, weight_decay=0)
-
-    # train the explainer for the given node
-    model.eval()
-    model_logits = model(graph, dataset)
-    model_predict = F.one_hot(th.argmax(model_logits, dim=-1), 2)
-    sub_feats = graph.ndata["_FEAT"]
-
-    for epoch in tqdm(range(50)):
-        explainer.train()
-        exp_logits = explainer(graph, sub_feats, dataset)
-        loss = explainer._loss(exp_logits, model_predict[0])
-
-        optim.zero_grad()
-        loss.backward()
-        optim.step()
-
-    # visualize the importance of edges
-    edge_weights = explainer.edge_mask.sigmoid().detach()
-
+    trainer.fit(gnne)
+    edge_weights = gnne.explainer.edge_mask.sigmoid().detach()
     # Get Aggregate weight importances into nodes
-    graph.ndata["line_importance"] = th.ones(graph.number_of_nodes(), device=dev) * 2
-    graph.edata["edge_mask"] = edge_weights
-    graph.update_all(
-        fn.u_mul_e("line_importance", "edge_mask", "m"), fn.mean("m", "line_importance")
+    g.ndata["line_importance"] = th.ones(g.number_of_nodes(), device="cuda") * 2
+    g.edata["edge_mask"] = edge_weights.cuda()
+    g.update_all(
+        dgl.function.u_mul_e("line_importance", "edge_mask", "m"),
+        dgl.function.mean("m", "line_importance"),
     )
-
-    # Return sorted list of line importances
-    ret = sorted(
-        list(
-            zip(
-                graph.ndata["line_importance"].squeeze().detach().cpu().numpy(),
-                graph.ndata["_LINE"].detach().cpu().numpy(),
-            )
-        ),
-        reverse=True,
-    )
-
-    return [i[1] for i in ret]
+    return g.ndata["line_importance"].squeeze()
