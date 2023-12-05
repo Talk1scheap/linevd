@@ -12,7 +12,7 @@ from ray.tune import ExperimentAnalysis
 
 
 main_savedir = svd.get_dir(svd.outputs_dir() / "rq_results_new")
-chkpt = svd.processed_dir() / "clean_codebert/202307141026_1fca96a_update_get_data.sh/epoch=9-step=30.ckpt"
+chkpt = svd.processed_dir() / "clean_codebert/202312051046_e349de6_update/epoch=5-step=1278.ckpt"
 chkpt_info = Path(chkpt).parent.name
 chkpt_res_path = main_savedir / f"1_{chkpt_info}.csv"
 data = lvd.BigVulDatasetLineVDDataModule(

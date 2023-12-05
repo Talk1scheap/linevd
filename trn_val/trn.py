@@ -1,9 +1,6 @@
 import pytorch_lightning as pl
 import sastvd.linevd as lvd
-# from ray.tune.integration.pytorch_lightning import (
-#     TuneReportCallback,
-#     TuneReportCheckpointCallback,
-# )
+import pandas as pd
 import os
 import sastvd as svd
 from pytorch_lightning.loggers import CSVLogger
@@ -22,7 +19,10 @@ config = {
     "hdropout": 0.3,
     "gatdropout": 0.2,
     "modeltype": "gat2layer",
+    # "modeltype": "gat1layer",
+    # "modeltype": "hgtlayer",
     "gnntype": "gat",
+    # "gnntype": "hgt",
     "loss": "ce",
     "scea": 0.5,
     "gtype": "pdg+raw",
@@ -68,6 +68,7 @@ def train_linevd(
         nsampling_hops=2,
         gtype=config["gtype"],
         splits=config["splits"],
+        feat=config["embtype"],
     )
 
     # # Train model
@@ -90,6 +91,23 @@ def train_linevd(
         max_epochs=max_epochs,
     )
     trainer.fit(model, data)
+
+    # Save test results
+    main_savedir = svd.get_dir(svd.outputs_dir() / "rq_results_best")
+    trainer.test(model, data, ckpt_path="best")
+    res = [
+        "best",
+        "best",
+        model.res1vo,
+        model.res2mt,
+        model.res2f,
+        model.res3vo,
+        model.res2,
+        model.lr,
+    ]
+    mets = lvd.get_relevant_metrics(res)
+    res_df = pd.DataFrame.from_records([mets])
+    res_df.to_csv(str(main_savedir / svd.get_run_id()) + ".best.csv", index=0)
     
 if __name__ == '__main__':
     train_linevd(config=config,savepath=sp,samplesz=samplesz,max_epochs=10)

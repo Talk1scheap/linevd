@@ -23,7 +23,7 @@ import torchmetrics
 from torchmetrics import MatthewsCorrCoef
 from dgl.data.utils import load_graphs, save_graphs
 from dgl.dataloading import GraphDataLoader
-from dgl.nn.pytorch import GATConv, GraphConv
+from dgl.nn.pytorch import GATConv, GraphConv, HGTConv
 from sklearn.metrics import PrecisionRecallDisplay, precision_recall_curve
 from tqdm import tqdm
 
@@ -168,10 +168,11 @@ class BigVulDatasetLineVD(svddc.BigVulDataset):
         g.ndata["_SASTFF"] = th.tensor(flawfinder).long()
 
         g.ndata["_FVULN"] = g.ndata["_VULN"].max().repeat((g.number_of_nodes()))
+        g.ndata["_NTYPE"] = th.zeros(g.number_of_nodes(), dtype=th.long)
         g.edata["_ETYPE"] = th.Tensor(et).long()
         emb_path = svd.cache_dir() / f"codebert_method_level/{_id}.pt"
         g.ndata["_FUNC_EMB"] = th.load(emb_path).repeat((g.number_of_nodes(), 1))
-        g = dgl.add_self_loop(g)
+        # g = dgl.add_self_loop(g)
         save_graphs(str(savedir), [g])
         return g
 
@@ -355,11 +356,11 @@ class LitGNN(pl.LightningModule):
         gatdropout: float = 0.2,
         methodlevel: bool = False,
         nsampling: bool = False,
-        model: str = "gat2layer",
+        model: str = "hgtlayer",
         loss: str = "ce",
         multitask: str = "linemethod",
         stmtweight: int = 5,
-        gnntype: str = "gat",
+        gnntype: str = "hgt",
         random: bool = False,
         scea: float = 0.7,
         batch_size: int = 32,
@@ -412,15 +413,36 @@ class LitGNN(pl.LightningModule):
             gnn = GraphConv
             gnn1_args = {"in_feats": embfeat, **gnn_args}
             gnn2_args = {"in_feats": hfeat, **gnn_args}
+        elif self.hparams.gnntype == "hgt":
+            gnn = HGTConv
+            hgt_args = {"in_size": embfeat, "head_size": hfeat, "num_heads": numheads, "num_ntypes": 1, "num_etypes": 2}
+
 
         # model: gat2layer
         if "gat" in self.hparams.model:
-            self.gat = gnn(**gnn1_args)
-            self.gat2 = gnn(**gnn2_args)
+            self.gat = gnn(**gnn1_args, allow_zero_in_degree=True)
+            self.gat2 = gnn(**gnn2_args, allow_zero_in_degree=True)
             fcin = hfeat * numheads if self.hparams.gnntype == "gat" else hfeat
             self.fc = th.nn.Linear(fcin, self.hparams.hfeat)
             self.fconly = th.nn.Linear(embfeat, self.hparams.hfeat)
             self.mlpdropout = th.nn.Dropout(self.hparams.mlpdropout)
+
+        if "hgt" in self.hparams.model:
+            self.hgt = gnn(**hgt_args)
+            fcin = hfeat * numheads if self.hparams.gnntype == "hgt" else hfeat
+
+            self.conv_l1 = th.nn.Conv1d(200, 200, 3)
+            self.maxpool1 = th.nn.MaxPool1d(3, stride=2)
+            self.conv_l2 = th.nn.Conv1d(200, 200, 1)
+            self.maxpool2 = th.nn.MaxPool1d(2, stride=2)
+
+            self.classifier = th.nn.Linear(in_features=hfeat * num_heads, out_features=1)
+            self.sigmoid = th.nn.Sigmoid()
+
+            self.fc = th.nn.Linear(fcin, self.hparams.hfeat)
+            self.fconly = th.nn.Linear(embfeat, self.hparams.hfeat)
+            self.mlpdropout = th.nn.Dropout(self.hparams.mlpdropout)
+
 
         # model: mlp-only
         if "mlponly" in self.hparams.model:
@@ -455,6 +477,7 @@ class LitGNN(pl.LightningModule):
 
         e_weights and h_override are just used for GNNExplainer.
         """
+        print("\n", type(g), "\n")
         if self.hparams.nsampling and not test:
             hdst = g[2][-1].dstdata[self.EMBED]
             h_func = g[2][-1].dstdata["_FUNC_EMB"]
@@ -463,6 +486,8 @@ class LitGNN(pl.LightningModule):
             if "gat2layer" in self.hparams.model:
                 h = g.srcdata[self.EMBED]
             elif "gat1layer" in self.hparams.model:
+                h = g2.srcdata[self.EMBED]
+            elif "hgtlayer" in self.hparams.model:
                 h = g2.srcdata[self.EMBED]
         else:
             g2 = g
@@ -497,10 +522,35 @@ class LitGNN(pl.LightningModule):
                     h = h.view(-1, h.size(1) * h.size(2))
             elif "gat1layer" in self.hparams.model:
                 h = self.gat(g2, h)
+                print("h.shape++++++++++++", h.shape)
                 if self.hparams.gnntype == "gat":
                     h = h.view(-1, h.size(1) * h.size(2))
             h = self.mlpdropout(F.elu(self.fc(h)))
             h_func = self.mlpdropout(F.elu(self.fconly(h_func)))
+        # model: hgt
+        if "hgt" in self.hparams.model:
+            device = th.device('cuda:0')
+            self.to(device)
+            # node_types = g2.ndata['_NTYPE']['_N'] # traning: ndata是个字典，需要把键值取出来
+            node_types = g2.ndata['_NTYPE']  # testing: ndata是个tensor，不需要取键值
+            edge_types = g2.edata['_ETYPE']
+            # 获取所有唯一的数据项
+            unique_values, counts = th.unique(edge_types, return_counts=True)
+            # 获取唯一数据项的个数，即边的类型
+            num_etypes = unique_values.numel()
+            self.hgt = HGTConv(in_size=self.hparams.embfeat, head_size=self.hparams.hfeat, num_heads=self.hparams.num_heads,
+                                num_ntypes=1, num_etypes=num_etypes)
+            for param in self.parameters():
+                param.data = param.data.to(device)
+                assert param.device.type == 'cuda', f"Parameter {param} is not on CUDA"
+            h = self.hgt(g2, h, node_types, edge_types)
+            # print("h.shape++++++++++++", h.shape)
+            # if self.hparams.gnntype == "hgt":
+            #     h = h.view(-1, h.size(1) * h.size(2))
+
+            h = self.mlpdropout(F.elu(self.fc(h)))
+            h_func = self.mlpdropout(F.elu(self.fconly(h_func)))
+
 
         # Edge masking (for GNNExplainer)
         if test and len(e_weights) > 0:

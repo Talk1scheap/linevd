@@ -27,12 +27,12 @@ samplesz = -1
 run_id = svd.get_run_id()
 sp = svd.get_dir(svd.processed_dir() / f"raytune_best_{samplesz}" / run_id).as_posix()
 trainable = tune.with_parameters(
-    lvdrun.train_linevd, max_epochs=130, samplesz=samplesz, savepath=sp
+    lvdrun.train_linevd, max_epochs=10, samplesz=samplesz, savepath=sp
 )
 
 analysis = tune.run(
     trainable,
-    resources_per_trial={"cpu": 2, "gpu": 0},
+    resources_per_trial={"cpu": 16, "gpu": 1},
     metric="val_loss",
     mode="min",
     config=config,

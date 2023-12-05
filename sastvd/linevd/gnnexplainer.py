@@ -210,7 +210,7 @@ class GNNExplainerLit(pl.LightningModule):
         """Training step."""
         exp_logits = self(batch)[0]
         loss = self.explainer._loss(exp_logits, self.model_predict)
-        self.log("train_loss", loss, on_epoch=True, prog_bar=False)
+        self.log("train_loss", loss, on_epoch=True, prog_bar=False,batch_size=1024)
         return loss
 
     def train_dataloader(self):
