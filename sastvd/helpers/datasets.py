@@ -246,8 +246,8 @@ def bigvul(minimal=True, sample=False, return_raw=False, splits="default",stat=F
     df = pd.concat([df, pd.json_normalize(df["info"])], axis=1)
     
     # POST PROCESSING
-    #dfv = df[df.vul == 1]
-    dfv = df
+    dfv = df[df.vul == 1]
+    # dfv = df
     # No added or removed but vulnerable
     dfv = dfv[~dfv.apply(lambda x: len(x.added) == 0 and len(x.removed) == 0, axis=1)]
     # Remove functions with abnormal ending (no } or ;)
