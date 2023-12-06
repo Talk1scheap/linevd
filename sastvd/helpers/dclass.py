@@ -26,19 +26,13 @@ class BigVulDataset:
 
         # Balance training set
         if partition == "train" or partition == "val":  # 如果是训练集或者验证集
-            if partition == "train":
-                vul = self.df[self.df.vul == 1]  # 获取有漏洞的数据
-                nonvul = self.df[self.df.vul == 0]  # 获取没有漏洞的数据
-                if vul.size < nonvul.size:  # 如果有漏洞的数据比没有漏洞的数据少
-                    nonvul = nonvul.sample(len(vul), random_state=0)  # 随机抽取没有漏洞的数据
-                else:  # 如果没有漏洞的数据比有漏洞的数据少
-                    vul = vul.sample(len(nonvul), random_state=0)  # 随机抽取有漏洞的数据，但此时len(nonvul)=0，会把vul数据清空
-                self.df = pd.concat([vul, nonvul])  # 将有漏洞的数据和没有漏洞的数据合并，合并完还是0，整个df没有数据
-            else:
-                vul = self.df[self.df.vul == 1]
-                nonvul = self.df[self.df.vul == 0]
-                nonvul = nonvul.sample(min(len(nonvul), len(vul) * 20), random_state=0)
-                self.df = pd.concat([vul, nonvul])
+            vul = self.df[self.df.vul == 1]  # 获取有漏洞的数据
+            nonvul = self.df[self.df.vul == 0]  # 获取没有漏洞的数据
+            if vul.size < nonvul.size:  # 如果有漏洞的数据比没有漏洞的数据少
+                nonvul = nonvul.sample(len(vul), random_state=0)  # 随机抽取没有漏洞的数据
+            else:  # 如果没有漏洞的数据比有漏洞的数据少
+                vul = vul.sample(len(nonvul), random_state=0)  # 随机抽取有漏洞的数据，但此时len(nonvul)=0，会把vul数据清空
+            self.df = pd.concat([vul, nonvul])  # 将有漏洞的数据和没有漏洞的数据合并，合并完还是0，整个df没有数据
 
         # Correct ratio for test set
         if partition == "test":
